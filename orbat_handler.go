@@ -47,7 +47,7 @@ func Orbat() *ORBAT {
 }
 
 func OrbatAsJSON() string {
-	outputData, err := json.Marshal(orbat)
+	outputData, err := json.MarshalIndent(orbat, "", "    ")
 	if err != nil {
 		panic(err)
 	}
