@@ -41,14 +41,10 @@ type Leader struct {
 	Name  string
 }
 
-type LeaderSide struct {
-	Name         string
+type LeaderORBAT struct {
 	HQ           []*Leader
 	SquadLeaders []*Leader
 	TeamLeaders  []*Leader
-}
-type LeaderORBAT struct {
-	Sides []*LeaderSide
 }
 
 // 12:33:43.934 [tS_ORBAT] ["BLUFOR", "FTL", "CORPORAL", "Nickname"]
@@ -197,27 +193,12 @@ func composeLeaders() {
 	}
 
 	leaders = &LeaderORBAT{
-		Sides: make([]*LeaderSide, 0),
+		SquadLeaders: make([]*Leader, 0),
+		TeamLeaders:  make([]*Leader, 0),
+		HQ:           make([]*Leader, 0),
 	}
 
 	for _, side := range orbat.Sides {
-		idx := slices.IndexFunc(leaders.Sides, func(s *LeaderSide) bool {
-			if s == nil {
-				return false
-			}
-			return s.Name == side.Name
-		})
-		if idx == -1 {
-			leaders.Sides = append(leaders.Sides, &LeaderSide{
-				Name:         side.Name,
-				SquadLeaders: make([]*Leader, 0),
-				TeamLeaders:  make([]*Leader, 0),
-				HQ:           make([]*Leader, 0),
-			})
-			idx = len(leaders.Sides) - 1
-		}
-		leaderSide := leaders.Sides[idx]
-
 		for _, group := range side.Groups {
 			for _, unit := range group.Units {
 				leader := &Leader{
@@ -229,11 +210,11 @@ func composeLeaders() {
 				case Private:
 					continue
 				case Corporal:
-					leaderSide.TeamLeaders = append(leaderSide.TeamLeaders, leader)
+					leaders.TeamLeaders = append(leaders.TeamLeaders, leader)
 				case Sergeant:
-					leaderSide.SquadLeaders = append(leaderSide.SquadLeaders, leader)
+					leaders.SquadLeaders = append(leaders.SquadLeaders, leader)
 				default:
-					leaderSide.SquadLeaders = append(leaderSide.SquadLeaders, leader)
+					leaders.SquadLeaders = append(leaders.SquadLeaders, leader)
 				}
 			}
 		}

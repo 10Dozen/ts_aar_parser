@@ -10,10 +10,18 @@ import (
 )
 
 const RPT_SUFFIX string = ".rpt"
+const RPT_VERSION_SUFFIX string = "x64"
 
-func ParseRPT(path string) {
+func ParseRPT(path string) (filedate string) {
 	rpt_file := findLatestRPT(path)
-	file, err := os.Open(rpt_file)
+
+	parts := strings.Split(strings.ToLower(rpt_file), "_")
+	filedate = parts[2]
+	if parts[1] != RPT_VERSION_SUFFIX {
+		filedate = parts[1]
+	}
+
+	file, err := os.Open(filepath.Join(path, rpt_file))
 	if err != nil {
 		panic(err)
 	}
@@ -23,13 +31,15 @@ func ParseRPT(path string) {
 	for scanner.Scan() {
 
 		line := scanner.Text()
-		ParseORBATLine(line)
-		// ParseAARLine(line)
+		// ParseORBATLine(line)
+		ParseAARLine(line)
 	}
 
 	if err := scanner.Err(); err != nil {
 		panic(err)
 	}
+
+	return
 }
 
 func findLatestRPT(path string) string {
@@ -55,5 +65,5 @@ func findLatestRPT(path string) string {
 	}
 
 	fmt.Printf("RPT latest file: %s", name)
-	return filepath.Join(path, name)
+	return name
 }
