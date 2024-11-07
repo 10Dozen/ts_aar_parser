@@ -17,34 +17,38 @@ type Configuration struct {
 const CONFIG_FILE string = "config.json"
 const AAR_DIR_NAME string = "aars"
 const AAR_CONFIG_FILENAME string = "aarListConfig.ini"
-const ORBAT_FILENAME string = "orbat_%s.json"
+const ORBAT_FILENAME string = "ORBAT.%s.json"
 
-var configuration *Configuration = new(Configuration)
+var (
+	configuration *Configuration = new(Configuration)
+	orbatHandler  *ORBATHandler  = NewORBATHandler()
+	aarHandler    *AARHandler    = NewAARHandler()
+)
 
 func main() {
 	// -- Get exe file location
 	getExecutionLocation()
 
 	// -- Read config
-	// readConfig(CONFIG_FILE)
+	readConfig(CONFIG_FILE)
 
 	// -- Parse RPT file and gather ORBAT data and AAR metadata for futher selection
 	//    Will also create tmp intemediate files for each AAR that will be used to fully parse AAR if selected.
 	//    These files will be deleted afterward
-	// ParseRPT(configuration.RptDirectory)
+	//rptDate := ParseRPT(configuration.RptDirectory)
 
 	// -- Export ORBAT
-	//exportOrbat("Mission1_14-03-2024")
+	//exportOrbat(rptDate)
+	//exportOrbat("2024-03-14")
 
-	defer closeAllTempReports()
-
-	ParseAARLine(`20:15:53 "<AAR-dingor82583><meta><core>{ ""island"": ""dingor"", ""Name"": ""CO16 Western"", ""guid"": ""dingor82583"", ""summary"": ""Ковбои освобождают свой городок от бандитов"" }</core></meta></AAR-dingor82583>"`)
+	defer aarHandler.closeTmpReport()
+	aarHandler.ParseLine(`20:15:53 "<AAR-dingor82583><meta><core>{ ""island"": ""dingor"", ""Name"": ""CO16 Western"", ""guid"": ""dingor82583"", ""summary"": ""Ковбои освобождают свой городок от бандитов"" }</core></meta></AAR-dingor82583>"`)
 	//ParseAARLine(`20:15:53 "<AAR-dingor82583><meta><core>{ ""island"": ""lingor"", ""name"": ""CO16 Eastern"", ""guid"": ""dingor82586"", ""summary"": ""Ковбои освобождают свой городок от бандитов"" }</core></meta></AAR-dingor82583>"`)
-	ParseAARLine(`20:15:53 "<AAR-dingor82583><0><unit>[0,8329,2359,168,1,-1]</unit></0></AAR-dingor82583>"`)
-	ParseAARLine(`21:04:09 "<AAR-cup_chernarus_A334430><meta><veh>{ ""vehMeta"": [517,""HEMTT Ammo""] }</veh></meta></AAR-cup_chernarus_A334430>""`)
-	ParseAARLine(`21:04:09 Some body,""HEMTT Ammo""] }</veh></meta></AAR-cup_chernarus_A334430>""`)
+	aarHandler.ParseLine(`20:15:53 "<AAR-dingor82583><0><unit>[0,8329,2359,168,1,-1]</unit></0></AAR-dingor82583>"`)
+	aarHandler.ParseLine(`21:04:09 "<AAR-cup_chernarus_A334430><meta><veh>{ ""vehMeta"": [517,""HEMTT Ammo""] }</veh></meta></AAR-cup_chernarus_A334430>""`)
+	aarHandler.ParseLine(`21:04:09 Some body,""HEMTT Ammo""] }</veh></meta></AAR-cup_chernarus_A334430>""`)
 
-	v, _ := json.MarshalIndent(aars, "", "    ")
+	v, _ := json.MarshalIndent(aarHandler.aars, "", "    ")
 	fmt.Println(string(v))
 
 	// -- Ask user for excluding some aars if present using AAR metadata
@@ -82,6 +86,7 @@ func getExecutionLocation() {
 }
 
 func readConfig(filename string) {
+	// filename = filepath.Join(configuration.ExecDirectory, filename)
 	file, _ := os.Open(filename)
 	defer file.Close()
 	decoder := json.NewDecoder(file)
@@ -95,8 +100,7 @@ func handleReportSelection() {
 	for {
 		fmt.Println("Обнаруженные AAR:")
 
-		for idx, guid := range aarsOrder {
-			aar := aars[guid]
+		for idx, aar := range aarHandler.aars {
 			str := fmt.Sprintf(
 				"%d) %s",
 				idx+1,
@@ -115,30 +119,27 @@ func handleReportSelection() {
 			break
 		}
 		// -- Exclude logic here
-		if excludeId > len(aars) || excludeId < 1 {
+		if excludeId > len(aarHandler.aars) || excludeId < 1 {
 			continue
 		}
-		aars[aarsOrder[excludeId-1]].exclude = !aars[aarsOrder[excludeId-1]].exclude
+
+		aarHandler.aars[excludeId-1].exclude = !aarHandler.aars[excludeId-1].exclude
 	}
 }
 
 func exportOrbat(filenameSuffix string) {
-	path := filepath.Join(configuration.ORBATDirectory, fmt.Sprintf("orbat_%s.json", filenameSuffix))
+	path := filepath.Join(
+		configuration.ORBATDirectory,
+		fmt.Sprintf(
+			ORBAT_FILENAME,
+			filenameSuffix,
+		),
+	)
 	fmt.Printf("Exporting ORBAT to %s\n", path)
 	file, err := os.Create(path)
 	if err != nil {
 		panic(err)
 	}
 	defer file.Close()
-	file.WriteString(OrbatAsJSON())
-	file.Close()
-
-	path = filepath.Join(configuration.ORBATDirectory, fmt.Sprintf("orbat_leaders_%s.json", filenameSuffix))
-	fmt.Printf("Exporting ORBAT Leaders to %s\n", path)
-	file2, err := os.Create(path)
-	if err != nil {
-		panic(err)
-	}
-	defer file2.Close()
-	file2.WriteString(OrbatLeadersAsJSON())
+	file.WriteString(orbatHandler.ToJSON())
 }

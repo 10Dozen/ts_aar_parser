@@ -3,13 +3,28 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 )
 
-type AARCoreMeta struct {
+const (
+	AAR_TEST_META_PATTERN string = `<meta><core>`
+	AAR_TEST_PATTERN      string = `<AAR-.*>`
+
+	// 20:15:53 "<AAR-dingor82583><meta><core>{ ""island"": ""dingor"", ""Name"": ""CO16 Western"", ""guid"": ""dingor82583"", ""summary"": ""Ковбои освобождают свой городок от бандитов"" }</core></meta></AAR-dingor82583>"`)
+	AAR_METADATA_PATTERN     string = `(.*) "<AAR-.*><meta><core>(.*)<\/core>`
+	AAR_UNIT_META_PATTERN    string = `<AAR-.*><meta><unit>(.*)<\/unit>`
+	AAR_VEHICLE_META_PATTERN string = `<AAR-.*><meta><veh>(.*)<\/veh>`
+
+	AAR_UNIT_FRAME_PATTERN    string = `<AAR-.*><(\d+)><unit>(.*)<\/unit>`
+	AAR_VEHICLE_FRAME_PATTERN string = `<AAR-.*><(\d+)><veh>(.*)<\/veh>`
+	AAR_ATTACK_FRAME_PATTERN  string = `<AAR-.*><(\d+)><av>(.*)<\/av>`
+)
+
+type AARMeta struct {
 	Name      string `json:"name"`
 	Terrain   string `json:"island"`
 	Guid      string `json:"guid"`
@@ -19,6 +34,7 @@ type AARCoreMeta struct {
 	tmp       *os.File
 }
 
+/*
 type AARUnitMeta struct {
 	id       int
 	Name     string
@@ -47,84 +63,91 @@ type ARRVehicleFrame struct {
 	Owner     int
 	CrewCount int
 }
+*/
 
-const (
-	TEST_META_PATTERN string = `<meta><core>`
-	TEST_PATTERN      string = `<AAR-([a-zA-Z0-9]*)>`
+type AARRegexpRepo struct {
+	test,
+	metadata, unitMeta, vehicleMeta,
+	unitFrame, vehicleFrame, attackFrame *regexp.Regexp
+}
 
-	// 20:15:53 "<AAR-dingor82583><meta><core>{ ""island"": ""dingor"", ""Name"": ""CO16 Western"", ""guid"": ""dingor82583"", ""summary"": ""Ковбои освобождают свой городок от бандитов"" }</core></meta></AAR-dingor82583>"`)
-	METADATA_PATTERN     string = `(.*) "<AAR-.*><meta><core>(.*)<\/core>`
-	UNIT_META_PATTERN    string = `<AAR-.*><meta><unit>(.*)<\/unit>`
-	VEHICLE_META_PATTERN string = `<AAR-.*><meta><veh>(.*)<\/veh>`
+type AARHandler struct {
+	aars   []*AARMeta
+	regexp *AARRegexpRepo
+}
 
-	UNIT_FRAME_PATTERN    string = `<AAR-.*><(\d+)><unit>(.*)<\/unit>`
-	VEHICLE_FRAME_PATTERN string = `<AAR-.*><(\d+)><veh>(.*)<\/veh>`
-	ATTACK_FRAME_PATTERN  string = `<AAR-.*><(\d+)><av>(.*)<\/av>`
-)
-
-var (
-	aars                                                      map[string]*AARCoreMeta = make(map[string]*AARCoreMeta, 0)
-	aarsOrder                                                 []string
-	testMetaRE, testRE, metedataRE, unitMetaRE, vehicleMetaRE *regexp.Regexp
-	unitFrameRE, vehicleFrameRE, attackFrameRe                *regexp.Regexp
-)
-
-func ParseAARLine(line string) {
-	if testMetaRE == nil {
-		testRE = regexp.MustCompile(TEST_PATTERN)
-		metedataRE = regexp.MustCompile(METADATA_PATTERN)
-		// etc
+func (ah *AARHandler) ParseLine(line string) {
+	// -- Check for AAR line
+	isAAR := ah.regexp.test.MatchString(line)
+	if !isAAR {
+		return
 	}
 
 	// -- Check for meta
-	matches := metedataRE.FindStringSubmatch(line)
+	matches := ah.regexp.metadata.FindStringSubmatch(line)
 	if matches != nil {
-		fmt.Println("Match")
+		fmt.Println("AAR Metadata match")
 		core := strings.ReplaceAll(strings.Trim(matches[2], " "), `""`, `"`)
-		aarMeta := new(AARCoreMeta)
+		aarMeta := &AARMeta{
+			timelabel: matches[1],
+		}
 		if err := json.Unmarshal([]byte(core), aarMeta); err != nil {
 			panic(err)
 		}
-		aarMeta.timelabel = matches[1]
-		aars[aarMeta.Guid] = aarMeta
-		aarsOrder = append(aarsOrder, aarMeta.Guid)
+		//aarMeta.timelabel = matches[1]
 
-		createTempReport(aarMeta)
+		ah.createTempReport(aarMeta)
+		ah.aars = append(ah.aars, aarMeta)
 
 		return
 	}
 
-	// -- Check for AAR line
-	matches = testRE.FindStringSubmatch(line)
-	if matches == nil {
-		return
-	}
-
-	fmt.Println("AAR line match")
-	guid := matches[1]
-	appendToTempReport(aars[guid], line)
+	fmt.Println("AAR date line match")
+	ah.appendToTempReport(line)
 }
 
-func createTempReport(aar *AARCoreMeta) {
-	a := filepath.Join(configuration.ExecDirectory, fmt.Sprintf("%s.tmp", aar.Guid))
-	fmt.Println(a)
-	file, err := os.Create(filepath.Join(configuration.ExecDirectory, fmt.Sprintf("%s.tmp", aar.Guid)))
+func (ah *AARHandler) createTempReport(aar *AARMeta) {
+	ah.closeTmpReport()
+	tmpFilepath := filepath.Join(
+		configuration.ExecDirectory,
+		fmt.Sprintf("%s.tmp", aar.Guid),
+	)
+	fmt.Printf("Creating temporary report %s\n", tmpFilepath)
+	file, err := os.Create(tmpFilepath)
 	if err != nil {
 		panic(err)
 	}
 	aar.tmp = file
 }
 
-func appendToTempReport(aar *AARCoreMeta, line string) {
+func (ah *AARHandler) appendToTempReport(line string) {
+	if len(ah.aars) == 0 {
+		log.Print("[AARHandler] Found AAR data, but failed to find AAR metada. Skipping...")
+		return
+	}
+	aar := ah.aars[len(ah.aars)-1]
 	aar.tmp.WriteString(line)
 }
 
-func closeAllTempReports() {
-	for _, v := range aars {
-		fmt.Printf("Closing %s\n", v.tmp.Name())
-		v.tmp.Close()
-		defer os.Remove(v.tmp.Name())
+func (ah *AARHandler) closeTmpReport() {
+	fmt.Println("Closing temporary report")
+	if len(ah.aars) == 0 {
+		return
 	}
+	aar := ah.aars[len(ah.aars)-1]
+	aar.tmp.Close()
+}
+
+func NewAARHandler() *AARHandler {
+	h := &AARHandler{
+		aars: make([]*AARMeta, 0),
+		regexp: &AARRegexpRepo{
+			test:     regexp.MustCompile(AAR_TEST_PATTERN),
+			metadata: regexp.MustCompile(AAR_METADATA_PATTERN),
+		},
+	}
+
+	return h
 }
 
 /*

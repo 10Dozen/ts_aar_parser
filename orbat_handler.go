@@ -2,53 +2,18 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"regexp"
-	"slices"
 	"strings"
 )
 
-type ORBATElement struct {
-	Role  string
-	Rank  string
-	Name  string
-	Side  string
-	Group string
-}
+const (
+	ORBAT_METADATA_PATTERN string = `"\[tS_ORBAT\] Meta: (.*)"`
+	// 12:33:43.934 [tS_ORBAT] Meta: CO16 Western
+	ORBAT_DATA_PATTERN string = `"\[tS_ORBAT\] (\[.*\])"`
+	// 12:33:43.934 [tS_ORBAT] ["BLUFOR", "FTL", "CORPORAL", "Nickname"]
+)
 
-type ORBATUnit struct {
-	Role string
-	Rank string
-	Name string
-}
-
-type ORBATGroup struct {
-	Name  string
-	Units []*ORBATUnit
-}
-
-type ORBATSide struct {
-	Name   string
-	Groups []*ORBATGroup
-}
-
-type ORBAT struct {
-	Sides []*ORBATSide
-}
-
-type Leader struct {
-	Group string
-	Role  string
-	Name  string
-}
-
-type LeaderORBAT struct {
-	HQ           []*Leader
-	SquadLeaders []*Leader
-	TeamLeaders  []*Leader
-}
-
-// 12:33:43.934 [tS_ORBAT] ["BLUFOR", "FTL", "CORPORAL", "Nickname"]
-const patternStr string = `\[tS_ORBAT\] (\[.*\])`
 const (
 	Private    string = "PRIVATE"
 	Corporal          = "CORPORAL"
@@ -56,167 +21,195 @@ const (
 	Lieutenant        = "LIEUTENANT"
 )
 
-var (
-	pattern *regexp.Regexp
-	orbat   *ORBAT
-	leaders *LeaderORBAT
-)
-
-func Orbat() *ORBAT {
-	return orbat
+type ORBAT struct {
+	Mission string
+	Leaders *ORBATLeaders
+	Sides   map[string]*ORBATSide
 }
 
-func OrbatAsJSON() string {
-	outputData, err := json.MarshalIndent(orbat, "", "    ")
+func (o *ORBAT) MarshalJSON() ([]byte, error) {
+	sides := make([]*ORBATSide, 0, len(o.Sides))
+	for _, v := range o.Sides {
+		sides = append(sides, v)
+	}
+	out, err := json.Marshal(struct {
+		ORBAT
+		Sides []*ORBATSide
+	}{ORBAT: *o, Sides: sides})
 	if err != nil {
 		panic(err)
 	}
-	return string(outputData)
+	return out, nil
 }
 
-func OrbatLeadersAsJSON() string {
-	composeLeaders()
-	outputData, err := json.MarshalIndent(leaders, "", "    ")
+type ORBATLeaders struct {
+	HQ           []*ORBATLeader
+	SquadLeaders []*ORBATLeader
+	TeamLeaders  []*ORBATLeader
+}
+
+type ORBATSide struct {
+	Name   string
+	Groups map[string]*ORBATGroup
+}
+
+func (s *ORBATSide) MarshalJSON() ([]byte, error) {
+	groups := make([]*ORBATGroup, 0, len(s.Groups))
+	for _, v := range s.Groups {
+		groups = append(groups, v)
+	}
+
+	out, err := json.Marshal(struct {
+		ORBATSide
+		Groups []*ORBATGroup
+	}{ORBATSide: *s, Groups: groups})
 	if err != nil {
 		panic(err)
 	}
-	return string(outputData)
+	return out, nil
 }
 
-func ParseORBATLine(line string) {
-	//fmt.Printf("[orbat_reader.Parse] Invoked. Line=%s \n", line)
-	succes, subline := checkLine(line)
-	if !succes {
+type ORBATGroup struct {
+	Name  string
+	Units []*ORBATUnit
+}
+
+type ORBATLeader struct {
+	Group string
+	Role  string
+	Name  string
+}
+
+type ORBATUnit struct {
+	Role  string
+	Rank  string
+	Name  string
+	side  string
+	group string
+}
+
+type ORBATHandler struct {
+	orbats     []*ORBAT
+	metadataRE *regexp.Regexp
+	dataRE     *regexp.Regexp
+}
+
+func (oh *ORBATHandler) ParseLine(line string) {
+	// -- Check for ORBAT Metadata
+	matches := oh.metadataRE.FindStringSubmatch(line)
+	if matches != nil {
+		missionName := matches[1]
+		orbat := &ORBAT{
+			Mission: missionName,
+			Leaders: &ORBATLeaders{
+				HQ:           make([]*ORBATLeader, 0),
+				SquadLeaders: make([]*ORBATLeader, 0),
+				TeamLeaders:  make([]*ORBATLeader, 0),
+			},
+			Sides: make(map[string]*ORBATSide, 0),
+		}
+
+		if oh.orbats == nil {
+			oh.orbats = make([]*ORBAT, 1)
+			oh.orbats[0] = orbat
+			return
+		}
+
+		oh.orbats = append(oh.orbats, orbat)
+	}
+
+	// -- Check for ORBAT data line
+	matches = oh.dataRE.FindStringSubmatch(line)
+	if matches == nil || len(matches) < 2 {
 		return
 	}
-	orbatElement := parseElement(subline)
 
-	// -- Create ORBAT struct if not yet exists
-	if orbat == nil {
-		orbat = &ORBAT{
-			Sides: make([]*ORBATSide, 0),
-		}
+	if len(oh.orbats) == 0 {
+		log.Println("[ORBAT Handler] Found ORBAT data lines, but there were no ORBAT Metadata yet")
+		return
 	}
-
-	// -- Get existing/add missing Side
-	idx := slices.IndexFunc(orbat.Sides, func(s *ORBATSide) bool {
-		if s == nil {
-			return false
-		}
-		return s.Name == orbatElement.Side
-	})
-	var side *ORBATSide
-	if idx > -1 {
-		side = orbat.Sides[idx]
-		//fmt.Println("Found side")
-	} else {
-		side = &ORBATSide{
-			Name:   orbatElement.Side,
-			Groups: make([]*ORBATGroup, 0),
-		}
-		orbat.Sides = append(orbat.Sides, side)
-		//fmt.Println("New side")
-	}
-
-	// -- Get existing/add missing Group
-	idx = slices.IndexFunc(side.Groups, func(s *ORBATGroup) bool {
-		if s == nil {
-			return false
-		}
-		return s.Name == orbatElement.Group
-	})
-	var group *ORBATGroup
-	if idx > -1 {
-		group = side.Groups[idx]
-		//fmt.Println("Found group")
-	} else {
-		group = &ORBATGroup{
-			Name:  orbatElement.Group,
-			Units: make([]*ORBATUnit, 0),
-		}
-		side.Groups = append(side.Groups, group)
-		//fmt.Println("New group")
-	}
-
-	group.Units = append(group.Units, &ORBATUnit{
-		Role: orbatElement.Role,
-		Rank: orbatElement.Rank,
-		Name: orbatElement.Name,
-	})
-	//fmt.Println("[orbat_reader.Parse] ----END----")
+	unit := oh.parseUnit(matches[1])
+	orbat := oh.orbats[len(oh.orbats)-1]
+	oh.addUnit(unit, orbat)
 }
 
-func checkLine(line string) (bool, string) {
-	//fmt.Printf("[orbat_reader.checkLine] Invoked. line=%s\n", line)
-	if pattern == nil {
-		pattern = regexp.MustCompile(patternStr)
-	}
-
-	matches := pattern.FindStringSubmatch(line)
-	if matches == nil {
-		//fmt.Println("No match")
-		//fmt.Println("[orbat_reader.checkLine] ----END----")
-		return false, ""
-	}
-	/*
-		fmt.Println("Matches:")
-		fmt.Println(matches)
-		fmt.Println(len(matches))
-		for _, m := range matches {
-			fmt.Println(m)
-		}
-	*/
-	//fmt.Println("[orbat_reader.checkLine] ----END----")
-	return true, strings.TrimSpace(matches[1])
-}
-
-func parseElement(line string) ORBATElement {
-	//fmt.Printf("[orbat_reader.parseElement] Invoked. line=%s\n", line)
-	line = strings.Trim(line, "[], ")
-	elements := strings.Split(line, ",")
-	orbatElement := ORBATElement{
-		Side:  strings.Trim(elements[0], `"`),
-		Group: strings.Trim(elements[1], `"`),
+func (oh *ORBATHandler) parseUnit(line string) ORBATUnit {
+	elements := strings.Split(
+		strings.TrimSpace(
+			strings.Trim(line, "[], "),
+		),
+		",",
+	)
+	return ORBATUnit{
+		side:  strings.Trim(elements[0], `"`),
+		group: strings.Trim(elements[1], `"`),
 		Role:  strings.Trim(elements[2], `"`),
 		Rank:  strings.Trim(elements[3], `"`),
 		Name:  strings.Trim(elements[4], `"`),
 	}
-	//fmt.Println("[orbat_reader.parseElement] Element:")
-	//fmt.Println(orbatElement)
-	//fmt.Println("[orbat_reader.parseElement] ----END----")
-	return orbatElement
 }
 
-func composeLeaders() {
-	if leaders != nil {
-		return
-	}
-
-	leaders = &LeaderORBAT{
-		SquadLeaders: make([]*Leader, 0),
-		TeamLeaders:  make([]*Leader, 0),
-		HQ:           make([]*Leader, 0),
-	}
-
-	for _, side := range orbat.Sides {
-		for _, group := range side.Groups {
-			for _, unit := range group.Units {
-				leader := &Leader{
-					Role:  unit.Role,
-					Name:  unit.Name,
-					Group: group.Name,
-				}
-				switch unit.Rank {
-				case Private:
-					continue
-				case Corporal:
-					leaders.TeamLeaders = append(leaders.TeamLeaders, leader)
-				case Sergeant:
-					leaders.SquadLeaders = append(leaders.SquadLeaders, leader)
-				default:
-					leaders.SquadLeaders = append(leaders.SquadLeaders, leader)
-				}
-			}
+func (oh *ORBATHandler) addUnit(unit ORBATUnit, orbat *ORBAT) {
+	side, ok := orbat.Sides[unit.side]
+	if !ok {
+		side = &ORBATSide{
+			Name:   unit.side,
+			Groups: make(map[string]*ORBATGroup, 0),
 		}
+		orbat.Sides[unit.side] = side
 	}
+
+	group, ok := side.Groups[unit.group]
+	if !ok {
+		group = &ORBATGroup{
+			Name:  unit.group,
+			Units: make([]*ORBATUnit, 0),
+		}
+		side.Groups[unit.group] = group
+	}
+	group.Units = append(group.Units, &unit)
+
+	// -- Add leaders if rank is above Private
+	leader := &ORBATLeader{
+		Role:  unit.Role,
+		Name:  unit.Name,
+		Group: group.Name,
+	}
+	switch unit.Rank {
+	case Private:
+		return
+	case Corporal:
+		orbat.Leaders.TeamLeaders = append(
+			orbat.Leaders.TeamLeaders,
+			leader,
+		)
+	case Sergeant:
+		orbat.Leaders.SquadLeaders = append(
+			orbat.Leaders.SquadLeaders,
+			leader,
+		)
+	default:
+		orbat.Leaders.HQ = append(
+			orbat.Leaders.HQ,
+			leader,
+		)
+	}
+}
+
+func (oh *ORBATHandler) ToJSON() string {
+	outputData, err := json.MarshalIndent(oh.orbats, "", "    ")
+	if err != nil {
+		panic(err)
+	}
+	return string(outputData)
+}
+
+func NewORBATHandler() *ORBATHandler {
+	h := &ORBATHandler{
+		orbats:     make([]*ORBAT, 0),
+		metadataRE: regexp.MustCompile(ORBAT_METADATA_PATTERN),
+		dataRE:     regexp.MustCompile(ORBAT_DATA_PATTERN),
+	}
+
+	return h
 }

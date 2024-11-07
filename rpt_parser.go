@@ -3,17 +3,26 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 )
 
-const RPT_SUFFIX string = ".rpt"
-const RPT_VERSION_SUFFIX string = "x64"
+const (
+	RPT_SUFFIX         string = ".rpt"
+	RPT_VERSION_SUFFIX string = "x64"
+)
 
 func ParseRPT(path string) (filedate string) {
 	rpt_file := findLatestRPT(path)
+	if rpt_file == "" {
+		log.Fatalf(
+			"[ParseRPT] Failed to find any RPT file at %s",
+			path,
+		)
+	}
 
 	parts := strings.Split(strings.ToLower(rpt_file), "_")
 	filedate = parts[2]
@@ -26,13 +35,13 @@ func ParseRPT(path string) (filedate string) {
 		panic(err)
 	}
 	defer file.Close()
+	defer aarHandler.closeTmpReport()
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-
 		line := scanner.Text()
-		// ParseORBATLine(line)
-		ParseAARLine(line)
+		orbatHandler.ParseLine(line)
+		aarHandler.ParseLine(line)
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -64,6 +73,6 @@ func findLatestRPT(path string) string {
 		}
 	}
 
-	fmt.Printf("RPT latest file: %s", name)
+	fmt.Printf("RPT latest file: %s\n", name)
 	return name
 }
