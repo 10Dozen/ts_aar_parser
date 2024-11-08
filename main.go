@@ -7,6 +7,17 @@ import (
 	"path/filepath"
 )
 
+/*
+TODO:
+- Excluded AAR is exported with 'null' content
+- Clear tmp files for aars
+- Add js prefix to AAR file
+- Update aarListConfig.ini
+- Clear ORBAT and excluded AAR data when exported/excluded
+- Test against JS AAR converter
+- Use goroutines?
+*/
+
 type Configuration struct {
 	RptDirectory   string
 	AARDirectory   string
@@ -14,10 +25,13 @@ type Configuration struct {
 	ExecDirectory  string
 }
 
-const CONFIG_FILE string = "config.json"
-const AAR_DIR_NAME string = "aars"
-const AAR_CONFIG_FILENAME string = "aarListConfig.ini"
-const ORBAT_FILENAME string = "ORBAT.%s.json"
+const (
+	CONFIG_FILE         string = "config.json"
+	AAR_DIR_NAME               = "aars"
+	AAR_CONFIG_FILENAME        = "aarListConfig.ini"
+	AAR_FILENAME               = "AAR.%s.%s.%s.json"
+	ORBAT_FILENAME             = "ORBAT.%s.json"
+)
 
 var (
 	configuration *Configuration = new(Configuration)
@@ -35,46 +49,22 @@ func main() {
 	// -- Parse RPT file and gather ORBAT data and AAR metadata for futher selection
 	//    Will also create tmp intemediate files for each AAR that will be used to fully parse AAR if selected.
 	//    These files will be deleted afterward
-	//rptDate := ParseRPT(configuration.RptDirectory)
+	rptDate := ParseRPT(configuration.RptDirectory, aarHandler, orbatHandler)
 
 	// -- Export ORBAT
-	//exportOrbat(rptDate)
-	//exportOrbat("2024-03-14")
-
-	defer aarHandler.closeTmpReport()
-	aarHandler.ParseLine(`20:15:53 "<AAR-dingor82583><meta><core>{ ""island"": ""dingor"", ""Name"": ""CO16 Western"", ""guid"": ""dingor82583"", ""summary"": ""Ковбои освобождают свой городок от бандитов"" }</core></meta></AAR-dingor82583>"`)
-	//ParseAARLine(`20:15:53 "<AAR-dingor82583><meta><core>{ ""island"": ""lingor"", ""name"": ""CO16 Eastern"", ""guid"": ""dingor82586"", ""summary"": ""Ковбои освобождают свой городок от бандитов"" }</core></meta></AAR-dingor82583>"`)
-	aarHandler.ParseLine(`20:15:53 "<AAR-dingor82583><0><unit>[0,8329,2359,168,1,-1]</unit></0></AAR-dingor82583>"`)
-	aarHandler.ParseLine(`21:04:09 "<AAR-cup_chernarus_A334430><meta><veh>{ ""vehMeta"": [517,""HEMTT Ammo""] }</veh></meta></AAR-cup_chernarus_A334430>""`)
-	aarHandler.ParseLine(`21:04:09 Some body,""HEMTT Ammo""] }</veh></meta></AAR-cup_chernarus_A334430>""`)
-
-	v, _ := json.MarshalIndent(aarHandler.aars, "", "    ")
-	fmt.Println(string(v))
+	exportOrbat(rptDate)
 
 	// -- Ask user for excluding some aars if present using AAR metadata
-	// handleReportSelection()
+	handleReportSelection()
 
 	// -- Parse
-	// ParseAARs()
+	aarHandler.ParseAARs(rptDate)
 
-	// -- Export AARs???
+	// -- Export AARs
+	exportAARs(rptDate)
 
-	/*
-
-		Parse(`[tS_ORBAT] [""BLUFOR"",""Razor 1'1"",""RED - FTL"",""CORPORAL"",""Nickname1[kek]""]`)
-		Parse(`<AAR-cup_chernarus_A334430><421><unit>[10,0,0,0,1,513]</unit></421></AAR-cup_chernarus_A334430>`)
-		Parse(`[tS_ORBAT] [""BLUFOR"",""Razor 1'1"",""Automatic Rifleman"",""CORPORAL"",""Nickname2""]`)
-		Parse(`<AAR-cup_chernarus_A334430><421><unit>[11,0,0,0,1,513]</unit></421></AAR-cup_chernarus_A334430>`)
-		Parse(`[tS_ORBAT] [""BLUFOR"",""Razor 1'2"",""Razor 1'2 Squad Leader"",""SERGEANT"",""Nic3""]`)
-		Parse(`<AAR-cup_chernarus_A334430><421><unit>[12,2300,9577,151,0,-1]</unit></421></AAR-cup_chernarus_A334430>`)
-		Parse(`[tS_ORBAT] [""BLUFOR"",""Razor 1'1"",""Rifleman"",""PRIVATE"",""Nick444""]`)
-
-		Parse(`12:33:43.934 [tS_ORBAT] ["BLUFOR","Razor 1'2","FTL1","CORPORAL","Nickname"]`)
-		Parse(`12:33:43.934 [tS_ORBAT] ["OPFOR","Razor 1'2","Пулеметчик","PRIVATE","Nickname"]`)
-
-		exportOrbat("Mission1_14-03-2024")
-	*/
-
+	// -- Update arrListConfig.ini
+	// TBD
 }
 
 func getExecutionLocation() {
@@ -142,4 +132,29 @@ func exportOrbat(filenameSuffix string) {
 	}
 	defer file.Close()
 	file.WriteString(orbatHandler.ToJSON())
+}
+
+func exportAARs(filenameSuffix string) {
+	for _, aar := range aarHandler.aars {
+		if aar.exclude {
+			continue
+		}
+		path := filepath.Join(
+			configuration.AARDirectory,
+			AAR_DIR_NAME,
+			fmt.Sprintf(
+				AAR_FILENAME,
+				filenameSuffix,
+				aar.Terrain,
+				aar.Name,
+			),
+		)
+		fmt.Printf("Exporting AAR to %s\n", path)
+		file, err := os.Create(path)
+		if err != nil {
+			panic(err)
+		}
+		defer file.Close()
+		file.WriteString(aarHandler.ToJSON(aar))
+	}
 }

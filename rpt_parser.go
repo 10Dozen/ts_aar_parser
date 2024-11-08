@@ -15,7 +15,7 @@ const (
 	RPT_VERSION_SUFFIX string = "x64"
 )
 
-func ParseRPT(path string) (filedate string) {
+func ParseRPT(path string, aarHandler *AARHandler, orbatHandler *ORBATHandler) (filedate string) {
 	rpt_file := findLatestRPT(path)
 	if rpt_file == "" {
 		log.Fatalf(

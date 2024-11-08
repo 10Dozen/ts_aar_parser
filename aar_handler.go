@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -14,65 +13,18 @@ const (
 	AAR_TEST_META_PATTERN string = `<meta><core>`
 	AAR_TEST_PATTERN      string = `<AAR-.*>`
 
-	// 20:15:53 "<AAR-dingor82583><meta><core>{ ""island"": ""dingor"", ""Name"": ""CO16 Western"", ""guid"": ""dingor82583"", ""summary"": ""Ковбои освобождают свой городок от бандитов"" }</core></meta></AAR-dingor82583>"`)
-	AAR_METADATA_PATTERN     string = `(.*) "<AAR-.*><meta><core>(.*)<\/core>`
-	AAR_UNIT_META_PATTERN    string = `<AAR-.*><meta><unit>(.*)<\/unit>`
-	AAR_VEHICLE_META_PATTERN string = `<AAR-.*><meta><veh>(.*)<\/veh>`
-
-	AAR_UNIT_FRAME_PATTERN    string = `<AAR-.*><(\d+)><unit>(.*)<\/unit>`
-	AAR_VEHICLE_FRAME_PATTERN string = `<AAR-.*><(\d+)><veh>(.*)<\/veh>`
-	AAR_ATTACK_FRAME_PATTERN  string = `<AAR-.*><(\d+)><av>(.*)<\/av>`
+	AAR_METADATA_PATTERN    string = `(.*) "<AAR-.*><meta><core>(.*)<\/core>`
+	AAR_OBJECT_META_PATTERN string = `<AAR-.*><meta><(unit|veh)>\{ ""(unit|veh)Meta"": (.*) \}<\/(unit|veh|av)>`
+	AAR_FRAME_PATTERN       string = `<AAR-.*><(\d+)><(unit|veh|av)>(.*)<\/(unit|veh|av)>`
 )
-
-type AARMeta struct {
-	Name      string `json:"name"`
-	Terrain   string `json:"island"`
-	Guid      string `json:"guid"`
-	Summary   string `json:"summary"`
-	timelabel string
-	exclude   bool
-	tmp       *os.File
-}
-
-/*
-type AARUnitMeta struct {
-	id       int
-	Name     string
-	Side     string
-	IsPlayer bool
-}
-
-type AARVehicleMeta struct {
-	id   int
-	Name string
-}
-
-type ARRUnitFrame struct {
-	x       int
-	y       int
-	dir     int
-	IsAlive bool
-	// ?
-}
-
-type ARRVehicleFrame struct {
-	x         int
-	y         int
-	dir       int
-	IsAlive   bool
-	Owner     int
-	CrewCount int
-}
-*/
 
 type AARRegexpRepo struct {
 	test,
-	metadata, unitMeta, vehicleMeta,
-	unitFrame, vehicleFrame, attackFrame *regexp.Regexp
+	metadata, objectMetadata, frame *regexp.Regexp
 }
 
 type AARHandler struct {
-	aars   []*AARMeta
+	aars   []*AAR
 	regexp *AARRegexpRepo
 }
 
@@ -86,32 +38,34 @@ func (ah *AARHandler) ParseLine(line string) {
 	// -- Check for meta
 	matches := ah.regexp.metadata.FindStringSubmatch(line)
 	if matches != nil {
-		fmt.Println("AAR Metadata match")
+		//fmt.Println("AAR Metadata match")
 		core := strings.ReplaceAll(strings.Trim(matches[2], " "), `""`, `"`)
-		aarMeta := &AARMeta{
+		aar := &AAR{
 			timelabel: matches[1],
 		}
-		if err := json.Unmarshal([]byte(core), aarMeta); err != nil {
+		if err := json.Unmarshal([]byte(core), aar); err != nil {
 			panic(err)
 		}
-		//aarMeta.timelabel = matches[1]
 
-		ah.createTempReport(aarMeta)
-		ah.aars = append(ah.aars, aarMeta)
+		ah.createTempReport(aar)
+		ah.aars = append(ah.aars, aar)
 
 		return
 	}
 
-	fmt.Println("AAR date line match")
+	//fmt.Println("AAR data line match")
 	ah.appendToTempReport(line)
 }
 
-func (ah *AARHandler) createTempReport(aar *AARMeta) {
+func (ah *AARHandler) createTempReport(aar *AAR) {
 	ah.closeTmpReport()
+	/*TODO: Uncomment
 	tmpFilepath := filepath.Join(
 		configuration.ExecDirectory,
 		fmt.Sprintf("%s.tmp", aar.Guid),
 	)
+	*/
+	tmpFilepath := fmt.Sprintf("%s.tmp", aar.Guid)
 	fmt.Printf("Creating temporary report %s\n", tmpFilepath)
 	file, err := os.Create(tmpFilepath)
 	if err != nil {
@@ -126,7 +80,7 @@ func (ah *AARHandler) appendToTempReport(line string) {
 		return
 	}
 	aar := ah.aars[len(ah.aars)-1]
-	aar.tmp.WriteString(line)
+	aar.tmp.WriteString(line + "\n")
 }
 
 func (ah *AARHandler) closeTmpReport() {
@@ -138,46 +92,32 @@ func (ah *AARHandler) closeTmpReport() {
 	aar.tmp.Close()
 }
 
+func (ah *AARHandler) ParseAARs(filedate string) {
+	for _, aar := range ah.aars {
+		fmt.Printf("[AARHandler] Parsing AAR %s\n", aar.Guid)
+		aar.date = filedate
+		aar.Parse()
+	}
+}
+
+func (ah *AARHandler) ToJSON(aar *AAR) string {
+	outputData, err := json.MarshalIndent(aar.out, "", "    ")
+	if err != nil {
+		panic(err)
+	}
+	return string(outputData)
+}
+
 func NewAARHandler() *AARHandler {
 	h := &AARHandler{
-		aars: make([]*AARMeta, 0),
+		aars: make([]*AAR, 0),
 		regexp: &AARRegexpRepo{
-			test:     regexp.MustCompile(AAR_TEST_PATTERN),
-			metadata: regexp.MustCompile(AAR_METADATA_PATTERN),
+			test:           regexp.MustCompile(AAR_TEST_PATTERN),
+			metadata:       regexp.MustCompile(AAR_METADATA_PATTERN),
+			objectMetadata: regexp.MustCompile(AAR_OBJECT_META_PATTERN),
+			frame:          regexp.MustCompile(AAR_FRAME_PATTERN),
 		},
 	}
 
 	return h
 }
-
-/*
-20:15:53 "<AAR-dingor82583><0><unit>[0,8329,2359,168,1,-1]</unit></0></AAR-dingor82583>"
-21:04:09 "<AAR-cup_chernarus_A334430><meta><veh>{ ""vehMeta"": [517,""HEMTT Ammo""] }</veh></meta></AAR-cup_chernarus_A334430>"
-21:04:13 "<AAR-cup_chernarus_A334430><7><veh>[500,3246,8407,317,1,56,-1]</veh></7></AAR-cup_chernarus_A334430>"
-
-20:15:53 "<AAR-dingor82583><meta><core>{ ""island"": ""dingor"", ""name"": ""CO16 Western"", ""guid"": ""dingor82583"",
-""summary"": ""Ковбои освобождают свой городок от бандитов"" }</core></meta></AAR-dingor82583>"
-20:15:53 "<AAR-dingor82583><meta><unit>{ ""unitMeta"": [0,""Osamich"",""blufor"",1] }</unit></meta></AAR-dingor82583>"
-20:15:53 "<AAR-dingor82583><meta><unit>{ ""unitMeta"": [1,""Ka6aH"",""blufor"",1] }</unit></meta></AAR-dingor82583>"
-20:15:53 "<AAR-dingor82583><meta><unit>{ ""unitMeta"": [2,""invaderok"",""blufor"",1] }</unit></meta></AAR-dingor82583>"
-20:15:53 "<AAR-dingor82583><meta><unit>{ ""unitMeta"": [3,""Smoker"",""blufor"",1] }</unit></meta></AAR-dingor82583>"
-20:15:53 "<AAR-dingor82583><meta><unit>{ ""unitMeta"": [4,""Реневал"",""blufor"",1] }</unit></meta></AAR-dingor82583>"
-20:15:53 "<AAR-dingor82583><meta><unit>{ ""unitMeta"": [5,""10Dozen"",""blufor"",1] }</unit></meta></AAR-dingor82583>"
-20:15:53 "<AAR-dingor82583><meta><unit>{ ""unitMeta"": [6,""chek1"",""blufor"",1] }</unit></meta></AAR-dingor82583>"
-
-20:15:53 "<AAR-dingor82583><meta><unit>{ ""unitMeta"": [16,"""",""civ"",0] }</unit></meta></AAR-dingor82583>"
-
-20:15:53 "<AAR-dingor82583><0><unit>[0,8329,2359,168,1,-1]</unit></0></AAR-dingor82583>"
-20:15:53 "<AAR-dingor82583><0><unit>[1,8326,2360,168,1,-1]</unit></0></AAR-dingor82583>"
-20:15:53 "<AAR-dingor82583><0><unit>[2,8324,2359,168,1,-1]</unit></0></AAR-dingor82583>"
-
-20:15:59 "<AAR-dingor82583><meta><unit>{ ""unitMeta"": [17,"""",""opfor"",0] }</unit></meta></AAR-dingor82583>"
-
-
-
-21:04:13 "<AAR-cup_chernarus_A334430><7><veh>[500,3246,8407,317,1,56,-1]</veh></7></AAR-cup_chernarus_A334430>"
-21:04:13 "<AAR-cup_chernarus_A334430><7><veh>[501,2301,9549,313,1,-1,-1]</veh></7></AAR-cup_chernarus_A334430>"
-21:04:13 "<AAR-cup_chernarus_A334430><7><veh>[502,3141,8417,271,1,53,-1]</veh></7></AAR-cup_chernarus_A334430>"
-
-21:04:09 "<AAR-cup_chernarus_A334430><meta><veh>{ ""vehMeta"": [517,""HEMTT Ammo""] }</veh></meta></AAR-cup_chernarus_A334430>"
-*/
