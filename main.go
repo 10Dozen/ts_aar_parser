@@ -1,24 +1,16 @@
 package main
 
 import (
+	"archive/zip"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"syscall"
 )
-
-/*
-TODO:
-- Update aarListConfig.ini
-+ Excluded AAR is exported with 'null' content
-+ Clear tmp files for aars
-+ Add js prefix to AAR file
-+ Clear ORBAT and excluded AAR data when exported/excluded
-- Test against JS AAR converter
-- Use goroutines?
-*/
 
 type Configuration struct {
 	RptDirectory   string
@@ -28,22 +20,23 @@ type Configuration struct {
 }
 
 const (
-	CONFIG_FILE         string = "config.json"
-	AAR_DIR_NAME               = "aars"
-	AAR_CONFIG_FILENAME        = "aarListConfig.ini"
-	AAR_FILENAME               = "AAR.%s.%s.%s.json"
-	ORBAT_FILENAME             = "ORBAT.%s.json"
-	AAR_DATA_PREFIX            = "aarFileData = "
+	CONFIG_FILE           string = "config.json"
+	AAR_DIR_NAME                 = "aars"
+	AAR_CONFIG_FILENAME          = "aarListConfig.ini"
+	AAR_LINK_TEMPLATE            = "%s/%s"
+	AAR_FILENAME_TEMPLATE        = "AAR.%s.%s.%s"
+	ORBAT_FILENAME               = "ORBAT.%s.json"
+	AAR_DATA_PREFIX              = "aarFileData = "
 )
 
 var (
-	configuration *Configuration = new(Configuration)
-	orbatHandler  *ORBATHandler  = NewORBATHandler()
-	aarHandler    *AARHandler    = NewAARHandler()
+	configuration         *Configuration = new(Configuration)
+	orbatHandler          *ORBATHandler  = NewORBATHandler()
+	aarHandler            *AARHandler    = NewAARHandler()
+	windowsFsRestrictedRE *regexp.Regexp = regexp.MustCompile(`[\s:*?<>|\\/"]`)
 )
 
 func main() {
-
 	signalChannel := make(chan os.Signal, 2)
 	signal.Notify(signalChannel, os.Interrupt, syscall.SIGINT)
 	go func() {
@@ -80,9 +73,6 @@ func main() {
 
 	// -- Export AARs
 	exportAARs(rptDate)
-
-	// -- Update arrListConfig.ini
-	// TBD
 }
 
 func getExecutionLocation() {
@@ -129,7 +119,7 @@ func handleReportSelection() {
 		}
 
 		var excludeId int
-		fmt.Print("\n------------------\nНажмите Entar для конвертации, либо укажите ID AAR для исключения: ")
+		fmt.Print("\n------------------\nНажмите Enter для конвертации, либо укажите ID AAR для исключения: ")
 		fmt.Scanf("%d\n", &excludeId)
 		if excludeId == 0 {
 			break
@@ -161,29 +151,60 @@ func exportOrbat(filenameSuffix string) {
 	orbatHandler.Omit()
 }
 
-func exportAARs(filenameSuffix string) {
+func exportAARs(reportDate string) {
+	configEntries := make([]*AARConfigEntry, 0)
 	for _, aar := range aarHandler.aars {
 		if aar.exclude {
-			aarHandler.OmitAAR(aar)
+			aarHandler.DiscardAAR(aar)
 			continue
 		}
-		path := filepath.Join(
+
+		normalizedName := fmt.Sprintf(
+			AAR_FILENAME_TEMPLATE,
+			reportDate,
+			aar.Terrain,
+			windowsFsRestrictedRE.ReplaceAllString(aar.Name, `_`),
+		)
+		archiveName := fmt.Sprintf("%s.%s", normalizedName, "zip")
+
+		// -- Create ZIP archive
+		zipfile, err := os.Create(filepath.Join(
 			configuration.AARDirectory,
 			AAR_DIR_NAME,
-			fmt.Sprintf(
-				AAR_FILENAME,
-				filenameSuffix,
-				aar.Terrain,
-				aar.Name,
-			),
-		)
-		fmt.Printf("Exporting AAR to %s\n", path)
-		file, err := os.Create(path)
+			archiveName,
+		))
 		if err != nil {
 			panic(err)
 		}
-		defer file.Close()
-		file.WriteString(AAR_DATA_PREFIX + aarHandler.ToJSON(aar))
-		aarHandler.OmitAAR(aar)
+		defer zipfile.Close()
+
+		writer := zip.NewWriter(zipfile)
+		archived, err := writer.Create(fmt.Sprintf("%s.%s", normalizedName, "json"))
+		if err != nil {
+			panic(err)
+		}
+		defer writer.Close()
+
+		data := AAR_DATA_PREFIX + aarHandler.ToJSON(aar)
+		if _, err := archived.Write([]byte(data)); err != nil {
+			panic(err)
+		}
+
+		// -- Update config
+		configEntries = append(configEntries, NewAARConfigEntry(
+			reportDate,
+			aar.Name,
+			aar.Terrain,
+			fmt.Sprintf(AAR_LINK_TEMPLATE, AAR_DIR_NAME, archiveName),
+		))
+
+		// -- Discard AAR and related tmp files
+		aarHandler.DiscardAAR(aar)
 	}
+
+	slices.Reverse(configEntries)
+	aarHandler.UpdateConfig(
+		filepath.Join(configuration.AARDirectory, AAR_CONFIG_FILENAME),
+		configEntries,
+	)
 }

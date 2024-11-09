@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -24,9 +25,10 @@ type AAR struct {
 
 	out *AARConverted
 
+	exclude        bool
 	timelabel      string
 	date           string
-	exclude        bool
+	players        []string
 	buff           *bufio.Writer
 	expectedLength int
 	tmp            *os.File
@@ -105,7 +107,7 @@ func (e AARData) MarshalJSON() ([]byte, error) {
 // Parses AAR data stored in temporary file `aar.tmp` and composes data to `AARConverted` struct.
 // `AARConverted` struct is ready to export as JSON.
 func (aar *AAR) Parse() {
-	log.Printf("\n[%s] Parsing\n", aar.Guid)
+	log.Printf("[%s] Parsing\n", aar.Guid)
 	if aar.exclude {
 		log.Printf("[%s] Skipped\n", aar.Guid)
 		return
@@ -196,8 +198,14 @@ func (aar *AAR) handleObjectData(metadataType, content string) {
 	}
 	//fmt.Printf("%#v\n", unit)
 
-	if unit.IsPlayer == 1 {
-		//fmt.Println("[AAR.handleObjectData] Saving player's metadata")
+	// -- If player and not added already -- add to players meta
+	if unit.IsPlayer == 1 && !slices.ContainsFunc(
+		aar.players,
+		func(e string) bool {
+			return e == unit.Name
+		},
+	) {
+		aar.players = append(aar.players, unit.Name)
 		aar.out.Metadata.Players = append(
 			aar.out.Metadata.Players,
 			&AARData{Data: fmt.Sprintf(`["%s", "%s"]`, unit.Name, unit.Side)},
