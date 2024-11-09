@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -16,6 +17,8 @@ const (
 	AAR_METADATA_PATTERN    string = `(.*) "<AAR-.*><meta><core>(.*)<\/core>`
 	AAR_OBJECT_META_PATTERN string = `<AAR-.*><meta><(unit|veh)>\{ ""(unit|veh)Meta"": (.*) \}<\/(unit|veh|av)>`
 	AAR_FRAME_PATTERN       string = `<AAR-.*><(\d+)><(unit|veh|av)>(.*)<\/(unit|veh|av)>`
+
+	FLUSH_AFTER int = 10000
 )
 
 type AARRegexpRepo struct {
@@ -67,10 +70,12 @@ func (ah *AARHandler) createTempReport(aar *AAR) {
 	*/
 	tmpFilepath := fmt.Sprintf("%s.tmp", aar.Guid)
 	fmt.Printf("Creating temporary report %s\n", tmpFilepath)
+
 	file, err := os.Create(tmpFilepath)
 	if err != nil {
 		panic(err)
 	}
+	aar.buff = bufio.NewWriter(file)
 	aar.tmp = file
 }
 
@@ -80,7 +85,12 @@ func (ah *AARHandler) appendToTempReport(line string) {
 		return
 	}
 	aar := ah.aars[len(ah.aars)-1]
-	aar.tmp.WriteString(line + "\n")
+
+	aar.expectedLength += 1
+	aar.buff.WriteString(line + "\n")
+	if aar.expectedLength%FLUSH_AFTER == 0 {
+		aar.buff.Flush()
+	}
 }
 
 func (ah *AARHandler) closeTmpReport() {
@@ -89,6 +99,9 @@ func (ah *AARHandler) closeTmpReport() {
 		return
 	}
 	aar := ah.aars[len(ah.aars)-1]
+	// Force current buffer to flush
+	aar.buff.Flush()
+	aar.buff = nil
 	aar.tmp.Close()
 }
 
@@ -101,11 +114,23 @@ func (ah *AARHandler) ParseAARs(filedate string) {
 }
 
 func (ah *AARHandler) ToJSON(aar *AAR) string {
-	outputData, err := json.MarshalIndent(aar.out, "", "    ")
+	outputData, err := json.MarshalIndent(aar.out, "", "    ") // TODO: json.Marshal(aar.out) //
 	if err != nil {
 		panic(err)
 	}
 	return string(outputData)
+}
+
+func (ah *AARHandler) Clear() {
+	for _, aar := range ah.aars {
+		ah.OmitAAR(aar)
+	}
+}
+
+func (ah *AARHandler) OmitAAR(aar *AAR) {
+	aar.tmp.Close()
+	os.Remove(aar.tmp.Name())
+	aar = nil
 }
 
 func NewAARHandler() *AARHandler {

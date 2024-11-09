@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -23,10 +24,12 @@ type AAR struct {
 
 	out *AARConverted
 
-	timelabel string
-	date      string
-	exclude   bool
-	tmp       *os.File
+	timelabel      string
+	date           string
+	exclude        bool
+	buff           *bufio.Writer
+	expectedLength int
+	tmp            *os.File
 }
 
 type AARConverted struct {
@@ -102,14 +105,13 @@ func (e AARData) MarshalJSON() ([]byte, error) {
 // Parses AAR data stored in temporary file `aar.tmp` and composes data to `AARConverted` struct.
 // `AARConverted` struct is ready to export as JSON.
 func (aar *AAR) Parse() {
-	fmt.Printf("%#v\n", aar)
-	fmt.Printf("[%s] Parsing\n", aar.Guid)
+	log.Printf("\n[%s] Parsing\n", aar.Guid)
 	if aar.exclude {
-		fmt.Printf("[%s] Skipped\n", aar.Guid)
+		log.Printf("[%s] Skipped\n", aar.Guid)
 		return
 	}
 
-	fmt.Printf("[%s] Going to read tmp file %s\n", aar.Guid, aar.tmp.Name())
+	log.Printf("[%s] Going to read tmp file %s\n", aar.Guid, aar.tmp.Name())
 
 	aar.out = &AARConverted{
 		Metadata: &AARMetadata{
@@ -124,21 +126,22 @@ func (aar *AAR) Parse() {
 				Vehicles: make([]*AARData, 0),
 			},
 		},
-		Frames: make([]*AARFrame, 0),
+		Frames: make([]*AARFrame, 0, aar.expectedLength/2),
 	}
 
 	file, err := os.Open(aar.tmp.Name())
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	defer file.Close()
 
+	aar.tmp = file
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		aar.parseLine(scanner.Text())
 	}
 	if err := scanner.Err(); err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
 	// -- Update

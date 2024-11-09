@@ -204,6 +204,10 @@ func (oh *ORBATHandler) ToJSON() string {
 	return string(outputData)
 }
 
+func (oh *ORBATHandler) Omit() {
+	oh.orbats = nil
+}
+
 func NewORBATHandler() *ORBATHandler {
 	h := &ORBATHandler{
 		orbats:     make([]*ORBAT, 0),

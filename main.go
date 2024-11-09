@@ -4,16 +4,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 )
 
 /*
 TODO:
-- Excluded AAR is exported with 'null' content
-- Clear tmp files for aars
-- Add js prefix to AAR file
 - Update aarListConfig.ini
-- Clear ORBAT and excluded AAR data when exported/excluded
++ Excluded AAR is exported with 'null' content
++ Clear tmp files for aars
++ Add js prefix to AAR file
++ Clear ORBAT and excluded AAR data when exported/excluded
 - Test against JS AAR converter
 - Use goroutines?
 */
@@ -31,6 +33,7 @@ const (
 	AAR_CONFIG_FILENAME        = "aarListConfig.ini"
 	AAR_FILENAME               = "AAR.%s.%s.%s.json"
 	ORBAT_FILENAME             = "ORBAT.%s.json"
+	AAR_DATA_PREFIX            = "aarFileData = "
 )
 
 var (
@@ -40,6 +43,21 @@ var (
 )
 
 func main() {
+
+	signalChannel := make(chan os.Signal, 2)
+	signal.Notify(signalChannel, os.Interrupt, syscall.SIGINT)
+	go func() {
+		sig := <-signalChannel
+		switch sig {
+		case os.Interrupt:
+			aarHandler.Clear()
+			os.Exit(0)
+		case syscall.SIGINT:
+			aarHandler.Clear()
+			os.Exit(0)
+		}
+	}()
+
 	// -- Get exe file location
 	getExecutionLocation()
 
@@ -88,22 +106,30 @@ func readConfig(filename string) {
 
 func handleReportSelection() {
 	for {
-		fmt.Println("Обнаруженные AAR:")
+		fmt.Println("\n------------------\nОбнаруженные AAR:\n")
 
 		for idx, aar := range aarHandler.aars {
-			str := fmt.Sprintf(
-				"%d) %s",
-				idx+1,
-				fmt.Sprintf("%s > %s > %s (%s)", aar.timelabel, aar.Name, aar.Terrain, aar.Summary),
-			)
+			excludePrefix := ""
 			if aar.exclude {
-				str = str + " [ ИСКЛЮЧЕН ]"
+				excludePrefix = "[ ИСКЛЮЧЕН ] "
 			}
-			fmt.Println(str)
+
+			fmt.Println(fmt.Sprintf(
+				"%d) %s%s",
+				idx+1,
+				excludePrefix,
+				fmt.Sprintf(
+					"%s > %s > %s (%s)",
+					aar.timelabel,
+					aar.Name,
+					aar.Terrain,
+					aar.Summary,
+				),
+			))
 		}
 
 		var excludeId int
-		fmt.Print("Укажите ID AAR для исключения: ")
+		fmt.Print("\n------------------\nНажмите Entar для конвертации, либо укажите ID AAR для исключения: ")
 		fmt.Scanf("%d\n", &excludeId)
 		if excludeId == 0 {
 			break
@@ -132,11 +158,13 @@ func exportOrbat(filenameSuffix string) {
 	}
 	defer file.Close()
 	file.WriteString(orbatHandler.ToJSON())
+	orbatHandler.Omit()
 }
 
 func exportAARs(filenameSuffix string) {
 	for _, aar := range aarHandler.aars {
 		if aar.exclude {
+			aarHandler.OmitAAR(aar)
 			continue
 		}
 		path := filepath.Join(
@@ -155,6 +183,7 @@ func exportAARs(filenameSuffix string) {
 			panic(err)
 		}
 		defer file.Close()
-		file.WriteString(aarHandler.ToJSON(aar))
+		file.WriteString(AAR_DATA_PREFIX + aarHandler.ToJSON(aar))
+		aarHandler.OmitAAR(aar)
 	}
 }
