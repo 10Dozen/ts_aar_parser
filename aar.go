@@ -107,13 +107,9 @@ func (e AARData) MarshalJSON() ([]byte, error) {
 // Parses AAR data stored in temporary file `aar.tmp` and composes data to `AARConverted` struct.
 // `AARConverted` struct is ready to export as JSON.
 func (aar *AAR) Parse() {
-	log.Printf("[%s] Parsing\n", aar.Guid)
 	if aar.exclude {
-		log.Printf("[%s] Skipped\n", aar.Guid)
 		return
 	}
-
-	log.Printf("[%s] Going to read tmp file %s\n", aar.Guid, aar.tmp.Name())
 
 	aar.out = &AARConverted{
 		Metadata: &AARMetadata{
@@ -156,8 +152,6 @@ func (aar *AAR) Parse() {
 // Parses single text line and search for objects metadata or frame data.
 // Saves data to `out.Metadata` or `out.Frames`
 func (aar *AAR) parseLine(line string) {
-	//fmt.Printf("[%s] Parsing line: %s\n", aar.Guid, line)
-
 	// -- Check for frame data
 	matches := aarHandler.regexp.frame.FindStringSubmatch(line)
 	if matches != nil {
@@ -182,9 +176,7 @@ func (aar *AAR) parseLine(line string) {
 
 // Handles object metadata (unit or vehicle) - adds unit/vehice to a list (`out.Metadata.Objects.Units/Vehicles`), saves playable objects into `out.Metadata.Players`
 func (aar *AAR) handleObjectData(metadataType, content string) {
-	//fmt.Printf("[AAR.handleObjectData]  Type: %s, Value: %s\n", metadataType, content)
 	if metadataType == TagVehicle {
-		//fmt.Println("[AAR.handleObjectData] Saving vehicle data")
 		aar.out.Metadata.Objects.Vehicles = append(
 			aar.out.Metadata.Objects.Vehicles,
 			&AARData{Data: content},
@@ -196,7 +188,6 @@ func (aar *AAR) handleObjectData(metadataType, content string) {
 	if err := json.Unmarshal([]byte(content), unit); err != nil {
 		panic(err)
 	}
-	//fmt.Printf("%#v\n", unit)
 
 	// -- If player and not added already -- add to players meta
 	if unit.IsPlayer == 1 && !slices.ContainsFunc(
@@ -212,7 +203,6 @@ func (aar *AAR) handleObjectData(metadataType, content string) {
 		)
 	}
 
-	//fmt.Println("[AAR.handleObjectData] Saving unit data")
 	aar.out.Metadata.Objects.Units = append(
 		aar.out.Metadata.Objects.Units,
 		&AARData{Data: content},
@@ -221,12 +211,9 @@ func (aar *AAR) handleObjectData(metadataType, content string) {
 
 // Handles frame data and saves to `out.Frames` under given index
 func (aar *AAR) handleFrameData(idx int, frameType, data string) {
-	//fmt.Printf("[AAR.handleFrameData] Idx=%d, Type: %s, Data: %s \n", idx, frameType, data)
-
 	// -- Extend Frames, but in case of missing log second - refill with empty frame
 	if len(aar.out.Frames)-1 < idx {
 		diff := idx - (len(aar.out.Frames) - 1)
-		//fmt.Printf("Extending Timeline with %d frames as IDX is overrun\n", diff)
 		for i := 0; i < diff; i++ {
 			aar.out.Frames = append(aar.out.Frames, &AARFrame{
 				Units:    make([]*AARData, 0),
@@ -240,18 +227,6 @@ func (aar *AAR) handleFrameData(idx int, frameType, data string) {
 	frame := aar.out.Frames[idx]
 	frameData := &AARData{Data: data}
 
-	//fmt.Printf("Frame %d:\n  %#v  \n", idx, frame)
-	/*
-		for _, b := range frame.Units {
-			fmt.Printf("  Units:  %#v  \n", b)
-		}
-		for _, b := range frame.Vehicles {
-			fmt.Printf("  Vehs:  %#v  \n", b)
-		}
-		for _, b := range frame.Vehicles {
-			fmt.Printf("  Avs:  %#v  \n", b)
-		}
-	*/
 	switch frameType {
 	case TagUnit:
 		frame.Units = append(frame.Units, frameData)
@@ -260,17 +235,4 @@ func (aar *AAR) handleFrameData(idx int, frameType, data string) {
 	case TagAttack:
 		frame.Attacks = append(frame.Attacks, frameData)
 	}
-
-	//fmt.Printf("Frame %d after:\n  %#v  \n", idx, frame)
-	/*
-		for _, b := range frame.Units {
-			fmt.Printf("Units:  %#v  \n", b)
-		}
-		for _, b := range frame.Vehicles {
-			fmt.Printf("Vehs:   %#v  \n", b)
-		}
-		for _, b := range frame.Attacks {
-			fmt.Printf("Avs:    %#v  \n", b)
-		}
-	*/
 }

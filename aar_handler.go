@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -48,11 +49,7 @@ func (ah *AARHandler) ParseLine(line string) {
 
 	// -- Check for meta
 	matches := ah.regexp.metadata.FindStringSubmatch(line)
-	// if matches == nil {
-	// 	return
-	// }
 	if matches != nil {
-		//fmt.Println("AAR Metadata match")
 		core := strings.ReplaceAll(strings.Trim(matches[2], " "), `""`, `"`)
 		aar := &AAR{
 			timelabel: matches[1],
@@ -66,20 +63,15 @@ func (ah *AARHandler) ParseLine(line string) {
 		return
 	}
 
-	//fmt.Println("AAR data line match")
 	ah.appendToTempReport(line)
 }
 
 func (ah *AARHandler) createTempReport(aar *AAR) {
 	ah.closeTmpReport()
-	/*TODO: Uncomment
 	tmpFilepath := filepath.Join(
 		configuration.ExecDirectory,
 		fmt.Sprintf("%s.tmp", aar.Guid),
 	)
-	*/
-	tmpFilepath := fmt.Sprintf("%s.tmp", aar.Guid)
-	fmt.Printf("Creating temporary report %s\n", tmpFilepath)
 
 	file, err := os.Create(tmpFilepath)
 	if err != nil {
@@ -104,7 +96,6 @@ func (ah *AARHandler) appendToTempReport(line string) {
 }
 
 func (ah *AARHandler) closeTmpReport() {
-	fmt.Println("Closing temporary report")
 	if len(ah.aars) == 0 {
 		return
 	}
@@ -119,7 +110,6 @@ func (ah *AARHandler) ParseAARs(filedate string) {
 	chans := make([]chan int, 0, len(ah.aars))
 
 	for _, aar := range ah.aars {
-		fmt.Printf("[AARHandler] Parsing AAR %s\n", aar.Guid)
 		aar.date = filedate
 
 		ch := make(chan int)
@@ -191,10 +181,9 @@ func (ah *AARHandler) UpdateConfig(cfgPath string, entries []*AARConfigEntry) {
 	writer.Flush()
 
 	// -- Replace aarListConfig.ini with content of writter
-	fmt.Println("Going to copy to aarListConfig.ini")
 	cfg.Close()
-
 	os.Remove(cfg.Name())
+
 	newCfg, err := os.Create(cfgPath)
 	if err != nil {
 		panic(err)
@@ -208,6 +197,7 @@ func (ah *AARHandler) UpdateConfig(cfgPath string, entries []*AARConfigEntry) {
 
 	file.Close()
 	os.Remove(file.Name())
+	fmt.Println("Конфиг AAR обновлен.")
 }
 
 func NewAARHandler() *AARHandler {

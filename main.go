@@ -51,6 +51,13 @@ func main() {
 		}
 	}()
 
+	fmt.Println("       ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓")
+	fmt.Println("       ┃   tS AAR/ORBAT Converter (v.1.0.0)   ┃")
+	fmt.Println("       ┃           by 10Dozen                 ┃")
+	fmt.Println("       ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛")
+	fmt.Println(" Убедитесь, что настроены пути до соответствующих директорий в файле config.json!")
+	fmt.Println()
+
 	// -- Get exe file location
 	getExecutionLocation()
 
@@ -96,7 +103,7 @@ func readConfig(filename string) {
 
 func handleReportSelection() {
 	for {
-		fmt.Println("\n------------------\nОбнаруженные AAR:\n")
+		fmt.Println("------------------\nОбнаруженные AAR:\n")
 
 		for idx, aar := range aarHandler.aars {
 			excludePrefix := ""
@@ -109,7 +116,7 @@ func handleReportSelection() {
 				idx+1,
 				excludePrefix,
 				fmt.Sprintf(
-					"%s > %s > %s (%s)",
+					"%s ▸ %s ▸ %s (%s)",
 					aar.timelabel,
 					aar.Name,
 					aar.Terrain,
@@ -141,14 +148,15 @@ func exportOrbat(filenameSuffix string) {
 			filenameSuffix,
 		),
 	)
-	fmt.Printf("Exporting ORBAT to %s\n", path)
 	file, err := os.Create(path)
 	if err != nil {
 		panic(err)
 	}
 	defer file.Close()
 	file.WriteString(orbatHandler.ToJSON())
-	orbatHandler.Omit()
+
+	fmt.Printf("ORBAT экспортирован в %s\n", path)
+	orbatHandler.Discard()
 }
 
 func exportAARs(reportDate string) {

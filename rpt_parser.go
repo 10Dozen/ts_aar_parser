@@ -73,6 +73,6 @@ func findLatestRPT(path string) string {
 		}
 	}
 
-	fmt.Printf("RPT latest file: %s\n", name)
+	fmt.Printf("Свежайший RPT файл: %s\n", name)
 	return name
 }

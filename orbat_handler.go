@@ -204,7 +204,7 @@ func (oh *ORBATHandler) ToJSON() string {
 	return string(outputData)
 }
 
-func (oh *ORBATHandler) Omit() {
+func (oh *ORBATHandler) Discard() {
 	oh.orbats = nil
 }
 
