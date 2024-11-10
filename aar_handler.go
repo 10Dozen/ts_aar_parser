@@ -24,7 +24,7 @@ const (
 )
 
 type AARRegexpRepo struct {
-	test,
+	test, testMeta,
 	metadata, objectMetadata, frame *regexp.Regexp
 }
 
@@ -42,14 +42,13 @@ type AARConfigEntry struct {
 
 func (ah *AARHandler) ParseLine(line string) {
 	// -- Check for AAR line
-	isAAR := ah.regexp.test.MatchString(line)
-	if !isAAR {
+	if !ah.regexp.test.MatchString(line) {
 		return
 	}
 
 	// -- Check for meta
-	matches := ah.regexp.metadata.FindStringSubmatch(line)
-	if matches != nil {
+	if ah.regexp.testMeta.MatchString(line) {
+		matches := ah.regexp.metadata.FindStringSubmatch(line)
 		core := strings.ReplaceAll(strings.Trim(matches[2], " "), `""`, `"`)
 		aar := &AAR{
 			timelabel: matches[1],
@@ -205,6 +204,7 @@ func NewAARHandler() *AARHandler {
 		aars: make([]*AAR, 0),
 		regexp: &AARRegexpRepo{
 			test:           regexp.MustCompile(AAR_TEST_PATTERN),
+			testMeta:       regexp.MustCompile(AAR_TEST_META_PATTERN),
 			metadata:       regexp.MustCompile(AAR_METADATA_PATTERN),
 			objectMetadata: regexp.MustCompile(AAR_OBJECT_META_PATTERN),
 			frame:          regexp.MustCompile(AAR_FRAME_PATTERN),
