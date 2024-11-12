@@ -115,8 +115,8 @@ func (ah *AARHandler) ParseAARs(filedate string) {
 		chans = append(chans, ch)
 
 		go func() {
+			defer close(ch)
 			aar.Parse()
-			ch <- 1
 		}()
 	}
 
