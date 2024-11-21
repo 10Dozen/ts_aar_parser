@@ -1,0 +1,48 @@
+[
+    {
+        "Mission": "CO44 SuperMission",
+        "Leaders": {
+            "HQ": [],
+            "SquadLeaders": [],
+            "TeamLeaders": [
+                {
+                    "Group": "1`1",
+                    "Role": "FTL",
+                    "Name": "Nickname"
+                }
+            ]
+        },
+        "Sides": [
+            {
+                "Name": "BLUFOR",
+                "Groups": [
+                    {
+                        "Name": "1`1",
+                        "Units": [
+                            {
+                                "Role": "FTL",
+                                "Rank": "CORPORAL",
+                                "Name": "Nickname"
+                            },
+                            {
+                                "Role": "Rifleman",
+                                "Rank": "PRIVATE",
+                                "Name": "Nickname1"
+                            },
+                            {
+                                "Role": "Стрелок, помощник гранатометчика",
+                                "Rank": "PRIVATE",
+                                "Name": "Nickname2"
+                            },
+                            {
+                                "Role": "Rifleman",
+                                "Rank": "PRIVATE",
+                                "Name": "Nickname3"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+]

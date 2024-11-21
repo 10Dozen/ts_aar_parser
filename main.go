@@ -52,7 +52,7 @@ func main() {
 	}()
 
 	fmt.Println("       ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓")
-	fmt.Println("       ┃   tS AAR/ORBAT Converter (v.1.0.0)   ┃")
+	fmt.Println("       ┃   tS AAR/ORBAT Converter (v.1.0.1)   ┃")
 	fmt.Println("       ┃           by 10Dozen                 ┃")
 	fmt.Println("       ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛")
 	fmt.Println(" Убедитесь, что настроены пути до соответствующих директорий в файле config.json!")

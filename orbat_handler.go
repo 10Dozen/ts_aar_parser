@@ -134,18 +134,20 @@ func (oh *ORBATHandler) ParseLine(line string) {
 }
 
 func (oh *ORBATHandler) parseUnit(line string) ORBATUnit {
-	elements := strings.Split(
-		strings.TrimSpace(
-			strings.Trim(line, "[], "),
-		),
-		",",
-	)
+	elements := make([]string, 0, 5)
+	if err := json.Unmarshal(
+		[]byte(strings.ReplaceAll(line, `""`, `"`)),
+		&elements,
+	); err != nil {
+		panic(err)
+	}
+
 	return ORBATUnit{
-		side:  strings.Trim(elements[0], `"`),
-		group: strings.Trim(elements[1], `"`),
-		Role:  strings.Trim(elements[2], `"`),
-		Rank:  strings.Trim(elements[3], `"`),
-		Name:  strings.Trim(elements[4], `"`),
+		side:  elements[0],
+		group: elements[1],
+		Role:  elements[2],
+		Rank:  elements[3],
+		Name:  elements[4],
 	}
 }
 
