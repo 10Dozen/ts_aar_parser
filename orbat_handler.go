@@ -3,15 +3,7 @@ package main
 import (
 	"encoding/json"
 	"log"
-	"regexp"
 	"strings"
-)
-
-const (
-	ORBAT_METADATA_PATTERN string = `"\[tS_ORBAT\] Meta: (.*)"`
-	// 12:33:43.934 [tS_ORBAT] Meta: CO16 Western
-	ORBAT_DATA_PATTERN string = `"\[tS_ORBAT\] (\[.*\])"`
-	// 12:33:43.934 [tS_ORBAT] ["BLUFOR", "FTL", "CORPORAL", "Nickname"]
 )
 
 const (
@@ -89,14 +81,12 @@ type ORBATUnit struct {
 }
 
 type ORBATHandler struct {
-	orbats     []*ORBAT
-	metadataRE *regexp.Regexp
-	dataRE     *regexp.Regexp
+	orbats []*ORBAT
 }
 
 func (oh *ORBATHandler) ParseLine(line string) {
 	// -- Check for ORBAT Metadata
-	matches := oh.metadataRE.FindStringSubmatch(line)
+	matches := RegexpRepo.ORBAT.metadataRE.FindStringSubmatch(line)
 	if matches != nil {
 		missionName := matches[1]
 		orbat := &ORBAT{
@@ -119,7 +109,7 @@ func (oh *ORBATHandler) ParseLine(line string) {
 	}
 
 	// -- Check for ORBAT data line
-	matches = oh.dataRE.FindStringSubmatch(line)
+	matches = RegexpRepo.ORBAT.dataRE.FindStringSubmatch(line)
 	if matches == nil || len(matches) < 2 {
 		return
 	}
@@ -198,23 +188,9 @@ func (oh *ORBATHandler) addUnit(unit ORBATUnit, orbat *ORBAT) {
 	}
 }
 
-func (oh *ORBATHandler) ToJSON() string {
-	outputData, err := json.MarshalIndent(oh.orbats, "", "    ")
-	if err != nil {
-		panic(err)
-	}
-	return string(outputData)
-}
-
-func (oh *ORBATHandler) Discard() {
-	oh.orbats = nil
-}
-
 func NewORBATHandler() *ORBATHandler {
 	h := &ORBATHandler{
-		orbats:     make([]*ORBAT, 0),
-		metadataRE: regexp.MustCompile(ORBAT_METADATA_PATTERN),
-		dataRE:     regexp.MustCompile(ORBAT_DATA_PATTERN),
+		orbats: make([]*ORBAT, 0),
 	}
 
 	return h

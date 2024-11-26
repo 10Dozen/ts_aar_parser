@@ -106,12 +106,8 @@ func (e AARData) MarshalJSON() ([]byte, error) {
 
 // Parses AAR data stored in temporary file `aar.tmp` and composes data to `AARConverted` struct.
 // `AARConverted` struct is ready to export as JSON.
-func (aar *AAR) Parse() {
-	if aar.exclude {
-		return
-	}
-
-	aar.out = &AARConverted{
+func (aar *AAR) Parse() *AARConverted {
+	converted := &AARConverted{
 		Metadata: &AARMetadata{
 			Terrain:  aar.Terrain,
 			Name:     aar.Name,
@@ -136,49 +132,51 @@ func (aar *AAR) Parse() {
 	aar.tmp = file
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		aar.parseLine(scanner.Text())
+		aar.parseLine(scanner.Text(), converted)
 	}
 	if err := scanner.Err(); err != nil {
 		log.Fatal(err)
 	}
 
 	// -- Update
-	aar.out.Metadata.Duration = len(aar.out.Frames) - 1
+	converted.Metadata.Duration = len(converted.Frames) - 1
 
 	file.Close()
-	return
+	os.Remove(file.Name())
+	return converted
 }
 
 // Parses single text line and search for objects metadata or frame data.
 // Saves data to `out.Metadata` or `out.Frames`
-func (aar *AAR) parseLine(line string) {
+func (aar *AAR) parseLine(line string, convertedAAR *AARConverted) {
 	// -- Check for frame data
-	matches := aarHandler.regexp.frame.FindStringSubmatch(line)
+	matches := RegexpRepo.AAR.frame.FindStringSubmatch(line)
 	if matches != nil {
 		idx, err := strconv.Atoi(matches[1])
 		if err != nil {
 			panic(err)
 		}
-		aar.handleFrameData(idx, matches[2], matches[3])
+		aar.handleFrameData(convertedAAR, idx, matches[2], matches[3])
 		return
 	}
 
 	// --- Check for metadata
-	matches = aarHandler.regexp.objectMetadata.FindStringSubmatch(line)
+	matches = RegexpRepo.AAR.objectMetadata.FindStringSubmatch(line)
 	if matches == nil {
 		return
 	}
 	aar.handleObjectData(
+		convertedAAR,
 		matches[1],
 		strings.TrimSpace(strings.ReplaceAll(matches[3], `""`, `"`)),
 	)
 }
 
 // Handles object metadata (unit or vehicle) - adds unit/vehice to a list (`out.Metadata.Objects.Units/Vehicles`), saves playable objects into `out.Metadata.Players`
-func (aar *AAR) handleObjectData(metadataType, content string) {
+func (aar *AAR) handleObjectData(convertedAAR *AARConverted, metadataType, content string) {
 	if metadataType == TagVehicle {
-		aar.out.Metadata.Objects.Vehicles = append(
-			aar.out.Metadata.Objects.Vehicles,
+		convertedAAR.Metadata.Objects.Vehicles = append(
+			convertedAAR.Metadata.Objects.Vehicles,
 			&AARData{Data: content},
 		)
 		return
@@ -197,25 +195,25 @@ func (aar *AAR) handleObjectData(metadataType, content string) {
 		},
 	) {
 		aar.players = append(aar.players, unit.Name)
-		aar.out.Metadata.Players = append(
-			aar.out.Metadata.Players,
+		convertedAAR.Metadata.Players = append(
+			convertedAAR.Metadata.Players,
 			&AARData{Data: fmt.Sprintf(`["%s", "%s"]`, unit.Name, unit.Side)},
 		)
 	}
 
-	aar.out.Metadata.Objects.Units = append(
-		aar.out.Metadata.Objects.Units,
+	convertedAAR.Metadata.Objects.Units = append(
+		convertedAAR.Metadata.Objects.Units,
 		&AARData{Data: content},
 	)
 }
 
 // Handles frame data and saves to `out.Frames` under given index
-func (aar *AAR) handleFrameData(idx int, frameType, data string) {
+func (aar *AAR) handleFrameData(convertedAAR *AARConverted, idx int, frameType, data string) {
 	// -- Extend Frames, but in case of missing log second - refill with empty frame
-	if len(aar.out.Frames)-1 < idx {
-		diff := idx - (len(aar.out.Frames) - 1)
+	if len(convertedAAR.Frames)-1 < idx {
+		diff := idx - (len(convertedAAR.Frames) - 1)
 		for i := 0; i < diff; i++ {
-			aar.out.Frames = append(aar.out.Frames, &AARFrame{
+			convertedAAR.Frames = append(convertedAAR.Frames, &AARFrame{
 				Units:    make([]*AARData, 0),
 				Vehicles: make([]*AARData, 0),
 				Attacks:  make([]*AARData, 0),
@@ -224,7 +222,7 @@ func (aar *AAR) handleFrameData(idx int, frameType, data string) {
 	}
 
 	// -- Get frame to update
-	frame := aar.out.Frames[idx]
+	frame := convertedAAR.Frames[idx]
 	frameData := &AARData{Data: data}
 
 	switch frameType {

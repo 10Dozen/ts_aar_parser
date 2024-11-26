@@ -8,29 +8,15 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 )
 
 const (
-	AAR_TEST_META_PATTERN string = `<meta><core>`
-	AAR_TEST_PATTERN      string = `<AAR-.*>`
-
-	AAR_METADATA_PATTERN    string = `(.*) "<AAR-.*><meta><core>(.*)<\/core>`
-	AAR_OBJECT_META_PATTERN string = `<meta><(unit|veh)>\{ ""(unit|veh)Meta"": (.*) \}<\/(unit|veh|av)>`
-	AAR_FRAME_PATTERN       string = `<(\d+)><(unit|veh|av)>(.*)<\/(unit|veh|av)>`
-
 	FLUSH_AFTER int = 10000
 )
 
-type AARRegexpRepo struct {
-	test, testMeta,
-	metadata, objectMetadata, frame *regexp.Regexp
-}
-
 type AARHandler struct {
-	aars   []*AAR
-	regexp *AARRegexpRepo
+	aars []*AAR
 }
 
 type AARConfigEntry struct {
@@ -42,13 +28,13 @@ type AARConfigEntry struct {
 
 func (ah *AARHandler) ParseLine(line string) {
 	// -- Check for AAR line
-	if !ah.regexp.test.MatchString(line) {
+	if !RegexpRepo.AAR.test.MatchString(line) {
 		return
 	}
 
 	// -- Check for meta
-	if ah.regexp.testMeta.MatchString(line) {
-		matches := ah.regexp.metadata.FindStringSubmatch(line)
+	if RegexpRepo.AAR.testMeta.MatchString(line) {
+		matches := RegexpRepo.AAR.metadata.FindStringSubmatch(line)
 		core := strings.ReplaceAll(strings.Trim(matches[2], " "), `""`, `"`)
 		aar := &AAR{
 			timelabel: matches[1],
@@ -98,31 +84,16 @@ func (ah *AARHandler) closeTmpReport() {
 	if len(ah.aars) == 0 {
 		return
 	}
+
 	aar := ah.aars[len(ah.aars)-1]
+	if aar.buff == nil {
+		return
+	}
+
 	// Force current buffer to flush
 	aar.buff.Flush()
 	aar.buff = nil
 	aar.tmp.Close()
-}
-
-func (ah *AARHandler) ParseAARs(filedate string) {
-	chans := make([]chan int, 0, len(ah.aars))
-
-	for _, aar := range ah.aars {
-		aar.date = filedate
-
-		ch := make(chan int)
-		chans = append(chans, ch)
-
-		go func() {
-			defer close(ch)
-			aar.Parse()
-		}()
-	}
-
-	for _, ch := range chans {
-		<-ch
-	}
 }
 
 func (ah *AARHandler) ToJSON(aar *AAR) string {
@@ -145,7 +116,53 @@ func (ah *AARHandler) DiscardAAR(aar *AAR) {
 	aar = nil
 }
 
-func (ah *AARHandler) UpdateConfig(cfgPath string, entries []*AARConfigEntry) {
+func NewAARHandler() *AARHandler {
+	h := &AARHandler{
+		aars: make([]*AAR, 0),
+	}
+
+	return h
+}
+
+func NewAARConfigEntry(date, title, terrain, link string) *AARConfigEntry {
+	return &AARConfigEntry{
+		Date:    date,
+		Title:   title,
+		Terrain: terrain,
+		Link:    link,
+	}
+}
+
+func ParseAARs(filedate string, aars []*AAR) []*AARConverted {
+	// -- Start temp AAR parsing
+	chans := make([]chan *AARConverted, 0, len(aars))
+	for _, aar := range aars {
+		if aar.exclude {
+			continue
+		}
+
+		aar.date = filedate
+
+		ch := make(chan *AARConverted)
+		chans = append(chans, ch)
+
+		go func() {
+			defer close(ch)
+			converted := aar.Parse()
+			ch <- converted
+		}()
+	}
+
+	// -- Gather converted AARs
+	convertedAARs := make([]*AARConverted, 0)
+	for _, ch := range chans {
+		convertedAARs = append(convertedAARs, <-ch)
+	}
+
+	return convertedAARs
+}
+
+func UpdateAARListConfig(cfgPath string, entries []*AARConfigEntry) {
 	// -- Read config
 	file, err := os.Create("aarListConfig.tmp")
 	if err != nil {
@@ -197,28 +214,4 @@ func (ah *AARHandler) UpdateConfig(cfgPath string, entries []*AARConfigEntry) {
 	file.Close()
 	os.Remove(file.Name())
 	fmt.Println("Конфиг AAR обновлен.")
-}
-
-func NewAARHandler() *AARHandler {
-	h := &AARHandler{
-		aars: make([]*AAR, 0),
-		regexp: &AARRegexpRepo{
-			test:           regexp.MustCompile(AAR_TEST_PATTERN),
-			testMeta:       regexp.MustCompile(AAR_TEST_META_PATTERN),
-			metadata:       regexp.MustCompile(AAR_METADATA_PATTERN),
-			objectMetadata: regexp.MustCompile(AAR_OBJECT_META_PATTERN),
-			frame:          regexp.MustCompile(AAR_FRAME_PATTERN),
-		},
-	}
-
-	return h
-}
-
-func NewAARConfigEntry(date, title, terrain, link string) *AARConfigEntry {
-	return &AARConfigEntry{
-		Date:    date,
-		Title:   title,
-		Terrain: terrain,
-		Link:    link,
-	}
 }
